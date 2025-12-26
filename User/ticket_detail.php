@@ -1,6 +1,9 @@
 <?php
 session_start();
-if (!isset($_SESSION['loggedin'])) { header("Location: ../login.php"); exit; }
+if (!isset($_SESSION['loggedin'])) {
+    header("Location: ../login.php");
+    exit;
+}
 
 require_once __DIR__ . "/vendor/autoload.php";
 
@@ -8,45 +11,63 @@ use MongoDB\Client;
 use MongoDB\BSON\ObjectId;
 use MongoDB\BSON\UTCDateTime;
 
-if (!isset($_GET['id'])) { die("Invalid ID"); }
+// PHP warning’leri user ekranında gizle
+error_reporting(E_ALL & ~E_WARNING & ~E_DEPRECATED);
+ini_set('display_errors', 0);
+
+// ID kontrolü
+if (!isset($_GET['id'])) {
+    die("Invalid ticket ID");
+}
 
 $ticket_id = $_GET['id'];
 $current_user = $_SESSION['username'];
-$message_status = "";
 
 try {
-    // ⚠️ ŞİFRENİ YAZ
-    $uri = "mongodb+srv://cs306user:cs306proj123@cluster0.h4jv2qv.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0";
-    $client = new Client($uri, [], ['driver' => ['tlsAllowInvalidCertificates' => true]]);
+    // MongoDB bağlantısı
+    $uri = "mongodb+srv://cs306user:cs306proj123@cluster0.h4jv2qv.mongodb.net/cs306?retryWrites=true&w=majority&tls=true";
+    $client = new Client($uri);
     $collection = $client->cs306->tickets;
 
-    // --- YORUM EKLEME İŞLEMİ ---
-    if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['add_comment'])) {
-        $comment_text = $_POST['comment_text'];
-        
+    // =========================
+    // USER COMMENT EKLE
+    // =========================
+    if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['add_comment'])) {
+        $comment_text = trim($_POST['comment_text']);
+
         if (!empty($comment_text)) {
-            // MongoDB'de diziye eleman eklemek için $push kullanılır
             $collection->updateOne(
                 ['_id' => new ObjectId($ticket_id)],
                 ['$push' => [
                     'comments' => [
-                        'user' => $current_user,
-                        'text' => $comment_text,
-                        'date' => new UTCDateTime()
+                        'author'   => 'user',
+                        'username' => $current_user,
+                        'text'     => $comment_text,
+                        'date'     => new UTCDateTime()
                     ]
                 ]]
             );
-            $message_status = "<div class='alert alert-success'>Comment added!</div>";
+
+            // POST → REDIRECT → GET
+            header("Location: ticket_detail.php?id=" . $ticket_id);
+            exit;
         }
     }
 
-    // Bileti Getir (Sadece bu kullanıcıya aitse)
-    $ticket = $collection->findOne([
-        '_id' => new ObjectId($ticket_id),
-        'username' => $current_user
-    ]);
+   
+    $ticket = $collection->findOne(
+        ['_id' => new ObjectId($ticket_id)],
+        ['typeMap' => ['root' => 'array', 'document' => 'array', 'array' => 'array']]
+    );
 
-    if (!$ticket) { die("Ticket not found or access denied."); }
+    if (!$ticket) {
+        die("Ticket not found.");
+    }
+
+    // Yetki kontrolü
+    if (($ticket['username'] ?? '') !== $current_user) {
+        die("Access denied.");
+    }
 
 } catch (Exception $e) {
     die("Error: " . $e->getMessage());
@@ -64,52 +85,70 @@ try {
 
 <div class="container mt-5">
     <a href="tickets.php" class="btn btn-outline-secondary mb-3">← Back to List</a>
-    <?php echo $message_status; ?>
 
     <div class="card shadow">
         <div class="card-header bg-primary text-white d-flex justify-content-between">
-            <h5 class="mb-0">Subject: <?php echo htmlspecialchars($ticket['subject']); ?></h5>
-            <span class="badge bg-light text-primary"><?php echo $ticket['status']; ?></span>
+            <h5 class="mb-0">Subject: <?= htmlspecialchars($ticket['subject'] ?? '') ?></h5>
+            <span class="badge bg-light text-primary"><?= htmlspecialchars($ticket['status'] ?? '') ?></span>
         </div>
+
         <div class="card-body">
-            
+
+            <!-- Ticket Description -->
             <div class="alert alert-secondary">
                 <strong>Description:</strong><br>
-                <?php echo nl2br(htmlspecialchars($ticket['message'])); ?>
+                <?= nl2br(htmlspecialchars($ticket['message'] ?? '')) ?>
             </div>
 
-            <?php if (isset($ticket['admin_reply']) && !empty($ticket['admin_reply'])): ?>
-                <div class="alert alert-success">
-                    <strong>Admin Reply:</strong><br>
-                    <?php echo nl2br(htmlspecialchars($ticket['admin_reply'])); ?>
-                </div>
+            <hr>
+
+            <!-- Conversation -->
+            <h6>Conversation History:</h6>
+
+            <?php if (!empty($ticket['comments']) && is_array($ticket['comments'])): ?>
+                <?php foreach ($ticket['comments'] as $c): ?>
+                    <?php
+                        $author   = $c['author']   ?? 'user';
+                        $username = $c['username'] ?? ($c['user'] ?? 'User');
+                        $text     = $c['text']     ?? '';
+                        $date     = $c['date']     ?? null;
+                    ?>
+
+                    <div class="card mb-2 <?= $author === 'admin' ? 'border-success' : 'border-primary' ?>">
+                        <div class="card-body p-2">
+                            <strong>
+                                <?= $author === 'admin' ? 'Admin' : htmlspecialchars($username) ?>:
+                            </strong>
+
+                            <?= htmlspecialchars($text) ?>
+
+                            <?php if ($date instanceof MongoDB\BSON\UTCDateTime): ?>
+                                <div class="text-muted small">
+                                    <?= date('d.m.Y H:i', $date->toDateTime()->getTimestamp()) ?>
+                                </div>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
+            <?php else: ?>
+                <p class="text-muted">No messages yet.</p>
             <?php endif; ?>
 
             <hr>
-            
-            <h6>Conversation History:</h6>
-            <?php 
-            if (isset($ticket['comments']) && is_array($ticket['comments'])) {
-                foreach ($ticket['comments'] as $comment) {
-                    echo "<div class='card mb-2 bg-light border-0'>";
-                    echo "<div class='card-body p-2'>";
-                    echo "<strong>" . htmlspecialchars($comment['user']) . ":</strong> ";
-                    echo htmlspecialchars($comment['text']);
-                    echo "</div></div>";
-                }
-            } else {
-                echo "<p class='text-muted small'>No comments yet.</p>";
-            }
-            ?>
 
-            <hr>
-
+            <!-- User Reply -->
             <form method="POST">
                 <div class="mb-3">
                     <label class="form-label fw-bold">Add a Comment / Reply:</label>
-                    <textarea name="comment_text" class="form-control" rows="2" placeholder="Write your reply here..." required></textarea>
+                    <textarea name="comment_text"
+                              class="form-control"
+                              rows="2"
+                              placeholder="Write your reply here..."
+                              required></textarea>
                 </div>
-                <button type="submit" name="add_comment" class="btn btn-primary">Post Comment</button>
+                <button type="submit" name="add_comment" class="btn btn-primary">
+                    Post Comment
+                </button>
             </form>
 
         </div>

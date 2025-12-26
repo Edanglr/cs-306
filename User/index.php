@@ -17,7 +17,6 @@
         <div class="nav">
             <a class="btn" href="trigger_stock.php">Stock Update Trigger</a>
             <a class="btn secondary" href="tickets.php">Support Ticket System</a>
-            <a class="btn secondary" href="procedure_processorder.php">Process Order Procedure</a>
         </div>
     </div>
 </div>
