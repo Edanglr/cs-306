@@ -1,7 +1,8 @@
 <?php
 session_start();
 
-
+// Dosya yolu: htdocs/user/procedure_processorder.php
+// Veritabanı bağlantısı
 require_once "db.php"; 
 
 error_reporting(E_ALL & ~E_WARNING & ~E_DEPRECATED);
@@ -9,6 +10,7 @@ ini_set('display_errors', 0);
 
 $message = "";
 $message_type = "success";
+$extra_info = ""; // Güncel durumu göstermek için yeni değişken
 
 if (isset($_POST["run"])) {
     $orderID = (int) $_POST["orderID"];
@@ -17,7 +19,7 @@ if (isset($_POST["run"])) {
         $message = "Invalid Order ID.";
         $message_type = "danger";
     } else {
-        // Stored Procedure Çağrısı
+        // 1. ADIM: Prosedürü Çalıştır
         $sql = "CALL ProcessOrder(?)";
         $stmt = mysqli_prepare($conn, $sql);
 
@@ -27,6 +29,25 @@ if (isset($_POST["run"])) {
             if (mysqli_stmt_execute($stmt)) {
                 $message = "ProcessOrder procedure executed successfully for OrderID = $orderID.";
                 $message_type = "success";
+
+                // 2. ADIM: Güncel Durumu Kontrol Et (Entegrasyon Kısmı Burası)
+                // Prosedür çalıştıktan sonra siparişin son halini çekiyoruz.
+                $checkSql = "SELECT Status FROM Orders WHERE OrderID = ?";
+                $checkStmt = mysqli_prepare($conn, $checkSql);
+                
+                if ($checkStmt) {
+                    mysqli_stmt_bind_param($checkStmt, "i", $orderID);
+                    mysqli_stmt_execute($checkStmt);
+                    $resStatus = mysqli_stmt_get_result($checkStmt);
+                    
+                    if ($rowStatus = mysqli_fetch_assoc($resStatus)) {
+                        $newStatus = htmlspecialchars($rowStatus['Status']);
+                        // Kullanıcıya göstereceğimiz ek bilgi mesajı
+                        $extra_info = "Update Verified: Current Status for Order #$orderID is now <strong>$newStatus</strong>.";
+                    }
+                    mysqli_stmt_close($checkStmt);
+                }
+
             } else {
                 $message = "Error executing procedure: " . mysqli_stmt_error($stmt);
                 $message_type = "danger";
@@ -43,7 +64,6 @@ if (isset($_POST["run"])) {
 /* =========================
    GET PENDING ORDERS (DROPDOWN)
    ========================= */
-// Veritabanından Status = 'Pending' olan siparişleri çekiyoruz
 $orders = [];
 $res = mysqli_query($conn, "SELECT OrderID FROM Orders WHERE Status = 'Pending'");
 
@@ -62,7 +82,6 @@ if ($res) {
     <title>Process Order (Stored Procedure)</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        /* User tarafı için biraz daha farklı bir renk tonu kullanılabilir */
         .navbar-custom { background-color: #2c3e50; }
     </style>
 </head>
@@ -94,6 +113,12 @@ if ($res) {
             <?php if (!empty($message)) : ?>
                 <div class="alert alert-<?php echo $message_type; ?>">
                     <?php echo htmlspecialchars($message); ?>
+                </div>
+            <?php endif; ?>
+
+            <?php if (!empty($extra_info)) : ?>
+                <div class="alert alert-info text-center border-info">
+                    ℹ️ <?php echo $extra_info; ?>
                 </div>
             <?php endif; ?>
 
