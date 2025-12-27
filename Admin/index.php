@@ -45,20 +45,7 @@ if (!isset($_SESSION['admin_logged_in'])) {
             </div>
         </div>
 
-        <!-- Order Processing -->
-        <div class="col-md-5">
-            <div class="card shadow h-100">
-                <div class="card-body p-4">
-                    <h3 class="mb-3">📦 Order Processing</h3>
-                    <p class="text-muted">
-                        Run stored procedures such as <b>ProcessOrder</b> for orders.
-                    </p>
-                    <a href="procedure_processorder.php" class="btn btn-success btn-lg w-100">
-                        Process Orders
-                    </a>
-                </div>
-            </div>
-        </div>
+    
 
     </div>
 </div>
